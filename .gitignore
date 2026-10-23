@@ -1,0 +1,27 @@
+# Node dependencies
+node_modules/
+.npm/
+
+# Build artifacts
+dist/
+dist-ssr/
+*.local
+
+# Python virtual environment & cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local Environment & Secrets
+.env
+.env.local
+
+# Vercel output
+.vercel/
+
+# OS metadata
+.DS_Store
+Thumbs.db
