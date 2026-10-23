@@ -169,3 +169,4 @@ npx vercel --prod \
 - **Input Sanitization**: Server-side and client-side phone number normalization, password matching, and mandatory address checks.
 - **CORS Protection**: Secure API routing between React frontend and Flask server.
 - **Client Image Compression**: HTML5 Canvas preprocessing downscales images before MySQL transport to maintain sub-second page loads.
+"# cj-jwellery" 
