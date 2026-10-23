@@ -8,6 +8,12 @@ from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from api.db import init_db, query_all, query_one, execute
 
+from api.seed_data import (
+    get_luxury_logo_svg,
+    get_default_categories,
+    get_default_products
+)
+
 app = Flask(__name__)
 # Enable CORS for all domains so both local Vite dev and Vercel cloud frontend can communicate
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -22,11 +28,20 @@ def ensure_init():
             init_db()
             _initialized = True
         except Exception as e:
-            print(f"Warning during DB init: {e}")
+            # When running on Vercel without cloud DB configured yet, this will catch connection refusal
+            print(f"Notice during DB init: {e}")
 
 @app.before_request
 def before_request_hook():
     ensure_init()
+
+def get_db_help_message():
+    return (
+        "Cloud MySQL connection required for write operations on live Vercel deployment. "
+        "Vercel cloud servers cannot connect to '127.0.0.1' XAMPP on your laptop. "
+        "Please add DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT, DB_SSL in your Vercel Project Environment Variables "
+        "(free hosted MySQL available on TiDB Cloud, Aiven, or Railway)."
+    )
 
 # ==============================================================================
 # HEALTH CHECK
@@ -45,7 +60,12 @@ def health():
             "counts": counts
         })
     except Exception as e:
-        return jsonify({"status": "degraded", "error": str(e)}), 500
+        return jsonify({
+            "status": "cloud_db_needed",
+            "database": "disconnected",
+            "error": str(e),
+            "notice": get_db_help_message()
+        }), 200
 
 # ==============================================================================
 # SETTINGS & APPEARANCE (SITE-WIDE LUXURY THEME)
@@ -54,12 +74,23 @@ def health():
 def get_settings():
     try:
         settings = query_one("SELECT * FROM settings ORDER BY id ASC LIMIT 1")
-        if not settings:
-            init_db()
-            settings = query_one("SELECT * FROM settings ORDER BY id ASC LIMIT 1")
-        return jsonify({"settings": settings})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if settings:
+            return jsonify({"settings": settings})
+    except Exception:
+        pass
+    
+    # Graceful fallback to default luxury settings
+    return jsonify({
+        "settings": {
+            "site_name": "SRI JAYAM JEWELLERS",
+            "theme_color": "#220538",
+            "secondary_color": "#3b0d5c",
+            "accent_color": "#D4AF37",
+            "bg_image": "",
+            "bg_opacity": 0.25,
+            "logo": get_luxury_logo_svg()
+        }
+    })
 
 @app.route("/api/settings", methods=["PUT"])
 def update_settings():
@@ -88,7 +119,8 @@ def update_settings():
         updated = query_one("SELECT * FROM settings ORDER BY id ASC LIMIT 1")
         return jsonify({"message": "Appearance settings updated successfully", "settings": updated})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"{str(e)}. {get_db_help_message()}"}), 500
+
 
 # ==============================================================================
 # AUTHENTICATION (CUSTOMER & ADMIN)
@@ -217,9 +249,15 @@ def admin_login():
 def get_categories():
     try:
         categories = query_all("SELECT * FROM categories ORDER BY display_order ASC, id ASC")
-        return jsonify({"categories": categories})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if categories:
+            return jsonify({"categories": categories})
+    except Exception:
+        pass
+
+    cats = get_default_categories()
+    for idx, c in enumerate(cats):
+        c["id"] = idx + 1
+    return jsonify({"categories": cats})
 
 @app.route("/api/categories", methods=["POST"])
 def create_category():
@@ -290,10 +328,10 @@ def delete_category(cat_id):
 # ==============================================================================
 @app.route("/api/products", methods=["GET"])
 def get_products():
-    try:
-        category = request.args.get("category", "").strip()
-        search = request.args.get("search", "").strip()
+    category = request.args.get("category", "").strip()
+    search = request.args.get("search", "").strip()
 
+    try:
         sql = "SELECT * FROM products WHERE 1=1"
         params = []
 
@@ -308,19 +346,41 @@ def get_products():
 
         sql += " ORDER BY id DESC"
         products = query_all(sql, params)
-        return jsonify({"products": products})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if products is not None and len(products) > 0:
+            return jsonify({"products": products})
+    except Exception:
+        pass
+
+    all_prods = get_default_products()
+    for idx, p in enumerate(all_prods):
+        p["id"] = idx + 1
+        p["category_id"] = idx + 1
+
+    res = all_prods
+    if category and category.lower() != "all":
+        res = [p for p in res if p["category_name"].lower() == category.lower()]
+    if search:
+        s_lower = search.lower()
+        res = [p for p in res if s_lower in p["name"].lower() or s_lower in p["model_number"].lower() or s_lower in p["details"].lower() or s_lower in p["category_name"].lower()]
+
+    return jsonify({"products": res})
 
 @app.route("/api/products/<int:prod_id>", methods=["GET"])
 def get_product(prod_id):
     try:
         product = query_one("SELECT * FROM products WHERE id = %s", (prod_id,))
-        if not product:
-            return jsonify({"error": "Jewel product not found"}), 404
-        return jsonify({"product": product})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if product:
+            return jsonify({"product": product})
+    except Exception:
+        pass
+
+    all_prods = get_default_products()
+    for idx, p in enumerate(all_prods):
+        if (idx + 1) == prod_id:
+            p["id"] = prod_id
+            return jsonify({"product": p})
+
+    return jsonify({"error": "Jewel product not found"}), 404
 
 @app.route("/api/products", methods=["POST"])
 def create_product():
