@@ -170,3 +170,4 @@ npx vercel --prod \
 - **CORS Protection**: Secure API routing between React frontend and Flask server.
 - **Client Image Compression**: HTML5 Canvas preprocessing downscales images before MySQL transport to maintain sub-second page loads.
 "# cj-jwellery" 
+"# cj-jwellery" 
